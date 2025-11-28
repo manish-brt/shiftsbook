@@ -10,10 +10,11 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+## API_BASE_URL
 
-   ```bash
-   npx expo start
+1. Replace API_BASE_URL with your local Device IP Address with PORT:8080
+   ```
+   const API_BASE_URL = 'http://192.168.__.___:8080'
    ```
 
 2. Start the Android App
