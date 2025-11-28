@@ -1,98 +1,204 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+// app/(tabs)/my-shifts.tsx
+import AnimatedSpinner from '@/components/animatedSpinner';
+import EmptyState from '@/components/emptyState';
+import ShiftCard from '@/components/shiftCard';
+import colors from '@/constants/colors';
+import { useShifts } from '@/hooks/useShifts';
+import { formatDate, getDurationMinutes } from '@/utils/dateFormatter';
+import {
+  groupShiftsByDate,
+  isShiftStarted,
+  sortShiftsByDate,
+} from '@/utils/shiftHelpers';
+import { useFocusEffect } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function MyShiftsScreen() {
+  const { shifts, loading, bookingId, cancelShift, refetch } = useShifts(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-export default function HomeScreen() {
+  const bookedShifts = useMemo(
+    () => shifts.filter(s => s.booked),
+    [shifts]
+  );
+
+  const groupedShifts = useMemo(
+    () => groupShiftsByDate(bookedShifts),
+    [bookedShifts]
+  );
+
+  const sortedGroups = useMemo(
+    () => sortShiftsByDate(groupedShifts),
+    [groupedShifts]
+  );
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const t = setTimeout(() => refetch(true), 150);
+      return () => clearTimeout(t);
+    }, [])
+  );
+
+  const formatHM = (totalMinutes: number) => {
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  if (loading && !refreshing && shifts.length == 0) {
+    return (
+      <View style={styles.centerContainer}>
+        <AnimatedSpinner isRed={true} />
+        <Text style={styles.loadingText}>Loading your shifts...</Text>
+      </View>
+    );
+  }
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
+    <SafeAreaView style={{ flex: 1 }}>
+      <View style={styles.container}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
+        >
+          {sortedGroups.length === 0 ? (
+            <EmptyState
+              message="You don't have any booked shifts yet"
+              icon="📅"
             />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+          ) : (
+            sortedGroups.map(([dateKey, dateShifts]) => {
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+              const totalMinutes = dateShifts.reduce(
+                (sum, s) => sum + getDurationMinutes(s.startTime, s.endTime), 0
+              );
+
+              return (
+                <View key={dateKey} style={styles.dateGroup}>
+                  <View style={styles.dateHeaderContainer}>
+                    <Text style={styles.dateHeader}>
+                      {formatDate(dateShifts[0].startTime)}
+                    </Text>
+                    <Text style={styles.shiftCount}>
+                      {dateShifts.length} {dateShifts.length === 1 ? 'shift' : 'shifts'}, {formatHM(totalMinutes)}
+                    </Text>
+                  </View>
+
+                  {dateShifts.map(shift => {
+                    const started = isShiftStarted(shift);
+
+                    return (
+                      <ShiftCard
+                        key={shift.id}
+                        shift={shift}
+                        onCancel={cancelShift}
+                        disabled={started}
+                        loading={bookingId === shift.id}
+                        showInfoRow={true}
+                      />
+                    );
+                  })}
+                </View>
+              )
+            })
+          )}
+        </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  summaryCard: {
+    backgroundColor: colors.white,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 20,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-around',
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  summaryValue: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: 4,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  summaryDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingVertical: 16,
+    flexGrow: 1,
+  },
+  dateGroup: {
+  },
+  dateHeaderContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginLeft: 16,
+    marginRight: 16,
+    marginVertical: 14
+  },
+  dateHeader: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.textPrimary,
+  },
+  shiftCount: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '500',
   },
 });
